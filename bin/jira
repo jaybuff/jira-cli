@@ -12,13 +12,26 @@ use HTTP::Request;
 use HTTP::Headers;
 use HTTP::Cookies;
 
-my($project, $component) = ("","");
-my $type = "Bug";
-GetOptions(
-    'project=s' => \$project,
-    'component=s' => \$component,
-    'type=s' => \$type,
+my %opts = (
+    type => 'Bug',
+    user => $ENV{USER},
+    baseuri => "http://jira",
 );
+
+my %overrides = ();
+GetOptions(
+    'project=s'     => \$overrides{project},
+    'component=s'   => \$overrides{component},
+    'type=s'        => \$overrides{type},
+    'user=s'        => \$overrides{user},
+    'summary=s'     => \$overrides{summary},
+    'description=s' => \$overrides{description},
+);
+
+load_configs(\%opts);
+while( my ($k,$v) = each %overrides ) {
+    $opts{$k} = $v if defined $v;
+}
 
 my ($fh, $fn) = File::Temp::tempfile("jiraXXXXXX",
   SUFFIX => ".yml",
@@ -27,15 +40,15 @@ my ($fh, $fn) = File::Temp::tempfile("jiraXXXXXX",
 );
 
 print $fh <<EOM;
-summary: 
+summary: $opts{summary}
 --- | # description on next line
-
+$opts{description}
 ---
-project: $project
-component: $component
-issuetype: $type
-assignee: $ENV{USER}
-reporter: $ENV{USER}
+project: $opts{project}
+component: $opts{component}
+issuetype: $opts{type}
+assignee: $opts{user}
+reporter: $opts{user}
 EOM
 
 close $fh;
@@ -47,7 +60,7 @@ print Dumper $jira;
 
 my $ua = Jira::UserAgent->new(
     cookie_jar => HTTP::Cookies->new(
-        file => "$ENV{HOME}/.$ENV{USER}-cookies.txt",
+        file => "$ENV{HOME}/.$opts{user}-cookies.txt",
         autosave => 1,
     ),
 );
@@ -56,7 +69,7 @@ use JSON::Syck;
 my $headers = HTTP::Headers->new();
 $headers->header("Content-Type" => "application/json");
 $headers->header("Accept" => "application/json");
-my $req = HTTP::Request->new("POST", "http://jira/rest/api/2/issue", $headers, JSON::Syck::Dump($jira));
+my $req = HTTP::Request->new("POST", "$opts{baseuri}/rest/api/2/issue", $headers, JSON::Syck::Dump($jira));
 print "REQUEST:\n";
 print $req->as_string;
 
@@ -78,7 +91,7 @@ my $issue = $resp->decoded_content;
 
 my $data = JSON::Syck::Load($issue);
 
-print "OK: $data->{key} [http://jira/browse/$data->{key}]\n";
+print "OK: $data->{key} [$opts{baseuri}/browse/$data->{key}]\n";
 
 
 # give content that represents a jira in YAML format, convert it to a hash ref
@@ -166,6 +179,28 @@ sub save_cookies {
         }
     );
     return;
+}
+
+use Cwd;
+use File::Basename;
+
+sub load_configs {
+    my $opts = shift;
+    my $dir = cwd();
+    my @configs = ();
+    while( $dir ne '/' ) {
+        my $f = "$dir/.jira";
+        push @configs, $f if -f $f;
+        $dir = File::Basename::dirname($dir);
+    }
+    push @configs, "/etc/jira-cli.yml" if -f "/etc/jira-cli.yml";
+    warn Dumper(\@configs);
+    for my $c ( reverse @configs ) {
+        my $conf = -x $c ? YAML::Syck::Load(qx{$c}) : YAML::Syck::LoadFile($c);
+        for my $key ( %$conf ) {
+            $opts{$key} = $conf->{$key};
+        }
+    }
 }
 
 package Jira::UserAgent;
