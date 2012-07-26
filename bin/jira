@@ -23,7 +23,7 @@ my ($fh, $fn) = File::Temp::tempfile("jiraXXXXXX",
 );
 
 print $fh <<EOM;
-summary:
+summary: 
 --- | # description on next line
 
 ---
@@ -65,7 +65,22 @@ sub parse_jira {
     }
   }
 
-  return \%jira;
+  my %formats = (
+      assignee   => '{ "name" => "%s" }',
+      reporter   => '{ "name" => "%s" }',
+      issuetype  => '{ "name" => "%s" }',
+      project    => '{ "key" => "%s" }',
+      component  => '[ { "name" => "%s" } ]',
+      summary => '"%s"',
+      description => '"%s"',
+  );
+
+  for my $key ( keys %jira ) {
+      my $fmt = $formats{$key};
+      die "format for $key not found\n" unless $fmt;
+      $jira{$key} = eval sprintf($fmt, $jira{$key});
+  }
+  return { fields => \%jira };
 }
 
 # dies if the user makes no changes to the file or the editor returns non-zero
