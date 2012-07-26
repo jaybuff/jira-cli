@@ -78,7 +78,7 @@ print $req->as_string;
 
 my $resp = $ua->request($req);
 # need to log in (ie set Basic Auth headers)
-if( $resp->header("X-AUSERNAME") eq 'anonymous' ) {
+if( $resp->is_error && $resp->header("X-AUSERNAME") eq 'anonymous' ) {
     $ua->auth($req);
     print "REQUEST:\n";
     print $req->as_string;
