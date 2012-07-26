@@ -7,6 +7,10 @@ use File::Temp;
 use Getopt::Long;
 use YAML::Syck;
 use Digest::MD5;
+use LWP::UserAgent;
+use HTTP::Request;
+use HTTP::Headers;
+use HTTP::Cookies;
 
 my($project, $component) = ("","");
 my $type = "Bug";
@@ -41,6 +45,42 @@ my $jira = parse_jira(user_edit_file($fn));
 use Data::Dumper;
 print Dumper $jira;
 
+my $ua = Jira::UserAgent->new(
+    cookie_jar => HTTP::Cookies->new(
+        file => "$ENV{HOME}/.$ENV{USER}-cookies.txt",
+        autosave => 1,
+    ),
+);
+
+use JSON::Syck;
+my $headers = HTTP::Headers->new();
+$headers->header("Content-Type" => "application/json");
+$headers->header("Accept" => "application/json");
+my $req = HTTP::Request->new("POST", "http://jira/rest/api/2/issue", $headers, JSON::Syck::Dump($jira));
+print "REQUEST:\n";
+print $req->as_string;
+
+my $resp = $ua->request($req);
+# need to log in (ie set Basic Auth headers)
+if( $resp->header("X-AUSERNAME") eq 'anonymous' ) {
+    $ua->auth($req);
+    print "REQUEST:\n";
+    print $req->as_string;
+    $resp = $ua->request($req);
+    save_cookies();
+}
+
+print "RESPONSE:\n";
+print $resp->as_string;
+
+# should get somethign like: {"id":"12345","key":"PROJECT-123","self":"http://jira/rest/api/2/issue/12345"}
+my $issue = $resp->decoded_content;
+
+my $data = JSON::Syck::Load($issue);
+
+print "OK: $data->{key} [http://jira/browse/$data->{key}]\n";
+
+
 # give content that represents a jira in YAML format, convert it to a hash ref
 # and return it.  If there multiple YAML documents are present, merge them
 #
@@ -70,7 +110,7 @@ sub parse_jira {
       reporter   => '{ "name" => "%s" }',
       issuetype  => '{ "name" => "%s" }',
       project    => '{ "key" => "%s" }',
-      component  => '[ { "name" => "%s" } ]',
+      component  => ["components" => '[ { "name" => "%s" } ]'],
       summary => '"%s"',
       description => '"%s"',
   );
@@ -78,7 +118,12 @@ sub parse_jira {
   for my $key ( keys %jira ) {
       my $fmt = $formats{$key};
       die "format for $key not found\n" unless $fmt;
-      $jira{$key} = eval sprintf($fmt, $jira{$key});
+      if( ref($fmt) eq 'ARRAY') {
+          my $val = delete $jira{$key};
+          $jira{$fmt->[0]} = eval sprintf($fmt->[1], $val);
+      } else {
+          $jira{$key} = eval sprintf($fmt, $jira{$key});
+      }
   }
   return { fields => \%jira };
 }
@@ -109,4 +154,96 @@ sub slurp {
   local $/ = undef;
   open my $fh, $file or die "Couldn't open $file: $!";
   return <$fh>
+}
+
+sub save_cookies {
+    $ua->cookie_jar->scan(
+        sub {
+            my @args = @_;
+            # dont discard cookies, so we dont get prompted for a password everytime
+            $args[9] = 0;
+            $ua->cookie_jar->set_cookie(@args);
+        }
+    );
+    return;
+}
+
+package Jira::UserAgent;
+use base qw(LWP::UserAgent);
+use MIME::Base64;
+
+sub auth {
+    my ($self, $req) = @_;
+    my $user = $ENV{USER};
+    my $pass = password();
+    my $encoded = MIME::Base64::encode_base64("$user:$pass");
+    $req->header("Authorization" => "Basic $encoded");
+}
+
+our @CLEANUP;
+sub password {
+    my ($in, $out) = stdio();
+
+    my $old = select $out;
+    eval "use Term::ReadKey";
+    if( $@ ) {
+        # no readkey, so try for stty to turn off echoing
+        my ($sttyBin) = grep { -x $_ } qw(/bin/stty /usr/bin/stty);
+        if( $sttyBin ) {
+            push @CLEANUP, sub {
+                system($sttyBin, "echo");
+            };
+            system($sttyBin, "-echo");
+        }
+        else {
+            die "Unable to disable echo on your tty while reading password, aborting";
+        }
+    }
+    else { 
+        # use readkey to turn off echoing
+        push @CLEANUP, sub {
+            Term::ReadKey::ReadMode("restore", $out);
+        };
+        Term::ReadKey::ReadMode("noecho", $out);
+    }
+    print $out "Jira Password [$ENV{USER}]: ";
+    my $pass = <$in>;
+    $CLEANUP[-1]->();
+    print $out "\n";
+    chomp($pass);
+    select $old;
+    return $pass;
+}
+
+sub stdio {
+    my ($in, $out);
+    if( !-t STDIN || !-t STDOUT ) {
+        # stdio missing, so try to use tty directly
+        my $tty = "/dev/tty" if -e "/dev/tty";
+        if( !$tty ) {
+            my ($ttyBin) = grep { -x $_ } qw(/bin/tty /usr/bin/tty);
+            if ( $ttyBin ) {
+                $tty = qx{$ttyBin};
+                chomp($tty);
+            }
+        }
+        
+        if( !$tty ) {
+            die "Could not determine TTY to read password from, aborting";
+        }
+        open $in,  "<$tty" or die "Failed to open tty $tty for input: $!";
+        open $out, ">$tty" or die "Failed to open tty $tty for output: $!";
+    }
+    else {
+        # using stdio
+        $in  = \*STDIN;
+        $out = \*STDOUT;
+    }
+    return ($in, $out);
+}
+
+END { 
+    for my $cleaner ( @CLEANUP ) {
+        $cleaner->();
+    }
 }
