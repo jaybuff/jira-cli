@@ -31,6 +31,9 @@ GetOptions(
 load_configs(\%opts);
 while( my ($k,$v) = each %overrides ) {
     $opts{$k} = $v if defined $v;
+    if( ! defined $opts{$k} ) {
+        $opts{$k} = "";
+    }
 }
 
 my ($fh, $fn) = File::Temp::tempfile("jiraXXXXXX",
@@ -194,7 +197,6 @@ sub load_configs {
         $dir = File::Basename::dirname($dir);
     }
     push @configs, "/etc/jira-cli.yml" if -f "/etc/jira-cli.yml";
-    warn Dumper(\@configs);
     for my $c ( reverse @configs ) {
         my $conf = -x $c ? YAML::Syck::Load(qx{$c}) : YAML::Syck::LoadFile($c);
         for my $key ( %$conf ) {
@@ -209,7 +211,7 @@ use MIME::Base64;
 
 sub auth {
     my ($self, $req) = @_;
-    my $user = $ENV{USER};
+    my $user = $opts{user};
     my $pass = password();
     my $encoded = MIME::Base64::encode_base64("$user:$pass");
     $req->header("Authorization" => "Basic $encoded");
@@ -241,7 +243,7 @@ sub password {
         };
         Term::ReadKey::ReadMode("noecho", $out);
     }
-    print $out "Jira Password [$ENV{USER}]: ";
+    print $out "Jira Password [$opts{user}]: ";
     my $pass = <$in>;
     $CLEANUP[-1]->();
     print $out "\n";
