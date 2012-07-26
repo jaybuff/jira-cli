@@ -198,7 +198,7 @@ sub load_configs {
     for my $c ( reverse @configs ) {
         my $conf = -x $c ? YAML::Syck::Load(qx{$c}) : YAML::Syck::LoadFile($c);
         for my $key ( %$conf ) {
-            $opts{$key} = $conf->{$key};
+            $opts->{$key} = $conf->{$key};
         }
     }
 }
