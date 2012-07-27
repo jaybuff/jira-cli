@@ -1,0 +1,16 @@
+-l=130      # 130 column lines
+-i=4        # 4 column indents
+-ci=2       # continuation indentation: 2
+-olc        # outdent long comments to fit
+-st         # output to stdout (for editor macros)
+-se         # output errors to stderr
+-vt=0       # moderate vertical tightness
+-cti=0      # put closing tokens on left
+-pt=2       # paren tightness
+-bt=2       # curly tightness
+-sbt=2      # bracket tightness
+-bbt=2      # block tightness
+-nsfs       # no spaces before semicolons in for
+
+# -wbb causes breaking BEFORE these tokens...
+-wbb="% + - * / x != == >= <= =~ !~ < > | & >= < = **= += *= &= <<= &&= -= /= |= >>= ||= .= %= ^= x="

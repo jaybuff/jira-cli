@@ -13,8 +13,8 @@ use HTTP::Headers;
 use HTTP::Cookies;
 
 my %opts = (
-    type => 'Bug',
-    user => $ENV{USER},
+    type    => 'Bug',
+    user    => $ENV{USER},
     baseuri => "http://jira",
 );
 
@@ -29,17 +29,18 @@ GetOptions(
 );
 
 load_configs(\%opts);
-while( my ($k,$v) = each %overrides ) {
+while (my ($k, $v) = each %overrides) {
     $opts{$k} = $v if defined $v;
-    if( ! defined $opts{$k} ) {
+    if (!defined $opts{$k}) {
         $opts{$k} = "";
     }
 }
 
-my ($fh, $fn) = File::Temp::tempfile("jiraXXXXXX",
-  SUFFIX => ".yml",
-  TMPDIR => 1,
-  CLEANUP => 1, # TODO make this a config option for debugging
+my ($fh, $fn) = File::Temp::tempfile(
+    "jiraXXXXXX",
+    SUFFIX  => ".yml",
+    TMPDIR  => 1,
+    CLEANUP => 1,        # TODO make this a config option for debugging
 );
 
 print $fh <<EOM;
@@ -63,7 +64,7 @@ print Dumper $jira;
 
 my $ua = Jira::UserAgent->new(
     cookie_jar => HTTP::Cookies->new(
-        file => "$ENV{HOME}/.$opts{user}-cookies.txt",
+        file     => "$ENV{HOME}/.$opts{user}-cookies.txt",
         autosave => 1,
     ),
 );
@@ -71,14 +72,15 @@ my $ua = Jira::UserAgent->new(
 use JSON::Syck;
 my $headers = HTTP::Headers->new();
 $headers->header("Content-Type" => "application/json");
-$headers->header("Accept" => "application/json");
+$headers->header("Accept"       => "application/json");
 my $req = HTTP::Request->new("POST", "$opts{baseuri}/rest/api/2/issue", $headers, JSON::Syck::Dump($jira));
 print "REQUEST:\n";
 print $req->as_string;
 
 my $resp = $ua->request($req);
+
 # need to log in (ie set Basic Auth headers)
-if( $resp->is_error && $resp->header("X-AUSERNAME") eq 'anonymous' ) {
+if ($resp->is_error && $resp->header("X-AUSERNAME") eq 'anonymous') {
     $ua->auth($req);
     print "REQUEST:\n";
     print $req->as_string;
@@ -96,86 +98,86 @@ my $data = JSON::Syck::Load($issue);
 
 print "OK: $data->{key} [$opts{baseuri}/browse/$data->{key}]\n";
 
-
 # give content that represents a jira in YAML format, convert it to a hash ref
 # and return it.  If there multiple YAML documents are present, merge them
 #
 # the last YAML document that is a scalar is put into a key named description
 # unless a key of that name is explicitly present
 sub parse_jira {
-  my $content = shift;
+    my $content = shift;
 
-  my @yamls = eval {
-    YAML::Syck::Load($content);
-  };
-  if ($@) {
-    die "Invalid jira specification (not valid yaml): $@\n";
-  }
-
-  my %jira = ();
-  foreach my $yaml (@yamls) {
-    if (ref($yaml) eq "HASH") {
-      @jira{ keys %$yaml } = values %$yaml;
-    } elsif (!ref($yaml)) {
-      $jira{"description"} = $yaml;
+    my @yamls = eval {YAML::Syck::Load($content);};
+    if ($@) {
+        die "Invalid jira specification (not valid yaml): $@\n";
     }
-  }
 
-  my %formats = (
-      assignee   => '{ "name" => "%s" }',
-      reporter   => '{ "name" => "%s" }',
-      issuetype  => '{ "name" => "%s" }',
-      project    => '{ "key" => "%s" }',
-      component  => ["components" => '[ { "name" => "%s" } ]'],
-      summary => '"%s"',
-      description => '"%s"',
-  );
+    my %jira = ();
+    foreach my $yaml (@yamls) {
+        if (ref($yaml) eq "HASH") {
+            @jira{keys %$yaml} = values %$yaml;
+        }
+        elsif (!ref($yaml)) {
+            $jira{"description"} = $yaml;
+        }
+    }
 
-  for my $key ( keys %jira ) {
-      my $fmt = $formats{$key};
-      die "format for $key not found\n" unless $fmt;
-      if( ref($fmt) eq 'ARRAY') {
-          my $val = delete $jira{$key};
-          $jira{$fmt->[0]} = eval sprintf($fmt->[1], $val);
-      } else {
-          $jira{$key} = eval sprintf($fmt, $jira{$key});
-      }
-  }
-  return { fields => \%jira };
+    my %formats = (
+        assignee    => '{ "name" => "%s" }',
+        reporter    => '{ "name" => "%s" }',
+        issuetype   => '{ "name" => "%s" }',
+        project     => '{ "key" => "%s" }',
+        component   => ["components" => '[ { "name" => "%s" } ]'],
+        summary     => '"%s"',
+        description => '"%s"',
+    );
+
+    for my $key (keys %jira) {
+        my $fmt = $formats{$key};
+        die "format for $key not found\n" unless $fmt;
+        if (ref($fmt) eq 'ARRAY') {
+            my $val = delete $jira{$key};
+            $jira{$fmt->[0]} = eval sprintf($fmt->[1], $val);
+        }
+        else {
+            $jira{$key} = eval sprintf($fmt, $jira{$key});
+        }
+    }
+    return {fields => \%jira};
 }
 
 # dies if the user makes no changes to the file or the editor returns non-zero
 # returns the contents of the file that user created
 sub user_edit_file {
-  my $file = shift;
+    my $file = shift;
 
-  my $digest_before = Digest::MD5::md5_hex(slurp($file));
+    my $digest_before = Digest::MD5::md5_hex(slurp($file));
 
-  my $editor = $ENV{EDITOR} || "vi";
-  my $ret = system($editor, $file);
-  if ($ret != 0) {
-    die "Aborting: $editor $file returned $ret\n";
-  }
+    my $editor = $ENV{EDITOR} || "vi";
+    my $ret = system($editor, $file);
+    if ($ret != 0) {
+        die "Aborting: $editor $file returned $ret\n";
+    }
 
-  my $contents = slurp($file);
-  if (Digest::MD5::md5_hex($contents) eq $digest_before) {
-    die "Aborting: unchanged file\n";
-  }
+    my $contents = slurp($file);
+    if (Digest::MD5::md5_hex($contents) eq $digest_before) {
+        die "Aborting: unchanged file\n";
+    }
 
-  return $contents;
+    return $contents;
 }
 
 sub slurp {
-  my $file = shift;
-  local $/ = undef;
-  open my $fh, $file or die "Couldn't open $file: $!";
-  return <$fh>
+    my $file = shift;
+    local $/ = undef;
+    open my $fh, $file or die "Couldn't open $file: $!";
+    return <$fh>;
 }
 
 sub save_cookies {
     $ua->cookie_jar->scan(
         sub {
             my @args = @_;
+
             # dont discard cookies, so we dont get prompted for a password everytime
             $args[9] = 0;
             $ua->cookie_jar->set_cookie(@args);
@@ -188,18 +190,18 @@ use Cwd;
 use File::Basename;
 
 sub load_configs {
-    my $opts = shift;
-    my $dir = cwd();
+    my $opts    = shift;
+    my $dir     = cwd();
     my @configs = ();
-    while( $dir ne '/' ) {
+    while ($dir ne '/') {
         my $f = "$dir/.jira";
         push @configs, $f if -f $f;
         $dir = File::Basename::dirname($dir);
     }
     push @configs, "/etc/jira-cli.yml" if -f "/etc/jira-cli.yml";
-    for my $c ( reverse @configs ) {
+    for my $c (reverse @configs) {
         my $conf = -x $c ? YAML::Syck::Load(qx{$c}) : YAML::Syck::LoadFile($c);
-        for my $key ( %$conf ) {
+        for my $key (%$conf) {
             $opts->{$key} = $conf->{$key};
         }
     }
@@ -211,22 +213,24 @@ use MIME::Base64;
 
 sub auth {
     my ($self, $req) = @_;
-    my $user = $opts{user};
-    my $pass = password();
+    my $user    = $opts{user};
+    my $pass    = password();
     my $encoded = MIME::Base64::encode_base64("$user:$pass");
     $req->header("Authorization" => "Basic $encoded");
 }
 
 our @CLEANUP;
+
 sub password {
     my ($in, $out) = stdio();
 
     my $old = select $out;
     eval "use Term::ReadKey";
-    if( $@ ) {
+    if ($@) {
+
         # no readkey, so try for stty to turn off echoing
-        my ($sttyBin) = grep { -x $_ } qw(/bin/stty /usr/bin/stty);
-        if( $sttyBin ) {
+        my ($sttyBin) = grep {-x $_} qw(/bin/stty /usr/bin/stty);
+        if ($sttyBin) {
             push @CLEANUP, sub {
                 system($sttyBin, "echo");
             };
@@ -236,7 +240,7 @@ sub password {
             die "Unable to disable echo on your tty while reading password, aborting";
         }
     }
-    else { 
+    else {
         # use readkey to turn off echoing
         push @CLEANUP, sub {
             Term::ReadKey::ReadMode("restore", $out);
@@ -254,18 +258,19 @@ sub password {
 
 sub stdio {
     my ($in, $out);
-    if( !-t STDIN || !-t STDOUT ) {
+    if (!-t STDIN || !-t STDOUT) {
+
         # stdio missing, so try to use tty directly
         my $tty = "/dev/tty" if -e "/dev/tty";
-        if( !$tty ) {
-            my ($ttyBin) = grep { -x $_ } qw(/bin/tty /usr/bin/tty);
-            if ( $ttyBin ) {
+        if (!$tty) {
+            my ($ttyBin) = grep {-x $_} qw(/bin/tty /usr/bin/tty);
+            if ($ttyBin) {
                 $tty = qx{$ttyBin};
                 chomp($tty);
             }
         }
-        
-        if( !$tty ) {
+
+        if (!$tty) {
             die "Could not determine TTY to read password from, aborting";
         }
         open $in,  "<$tty" or die "Failed to open tty $tty for input: $!";
@@ -279,8 +284,8 @@ sub stdio {
     return ($in, $out);
 }
 
-END { 
-    for my $cleaner ( @CLEANUP ) {
+END {
+    for my $cleaner (@CLEANUP) {
         $cleaner->();
     }
 }
