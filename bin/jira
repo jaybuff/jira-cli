@@ -94,9 +94,13 @@ print $resp->as_string;
 # should get somethign like: {"id":"12345","key":"PROJECT-123","self":"http://jira/rest/api/2/issue/12345"}
 my $issue = $resp->decoded_content;
 
-my $data = JSON::Syck::Load($issue);
+# on error we get something like this back:
+# {"errorMessages":[],"errors":{"reporter":"Field 'reporter' cannot be set. It is not on the appropriate screen, or unknown."}}
 
-print "OK: $data->{key} [$opts{baseuri}/browse/$data->{key}]\n";
+if ($resp->is_success) {
+    my $data = JSON::Syck::Load($issue);
+    print "OK: $data->{key} [$opts{baseuri}/browse/$data->{key}]\n";
+}
 
 # give content that represents a jira in YAML format, convert it to a hash ref
 # and return it.  If there multiple YAML documents are present, merge them
